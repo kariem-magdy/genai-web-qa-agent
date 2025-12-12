@@ -1,3 +1,11 @@
+import sys
+import os
+
+# --- FIX: Add project root to system path ---
+# This ensures Python can find the 'app' module even when running from a subfolder
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+# --------------------------------------------
+
 import chainlit as cl
 from app.agent.graph import build_graph
 from app.core.metrics import MetricsTracker

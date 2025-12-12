@@ -15,7 +15,6 @@ class BrowserManager:
     async def start(self):
         if not self.playwright:
             self.playwright = await async_playwright().start()
-            # Headless=False is critical for the "Visual Context" requirement
             self.browser = await self.playwright.chromium.launch(
                 headless=Config.HEADLESS, 
                 args=["--start-maximized"]
@@ -29,7 +28,7 @@ class BrowserManager:
         try:
             await self.page.goto(url, timeout=Config.TIMEOUT)
             await self.page.wait_for_load_state("domcontentloaded")
-            await asyncio.sleep(2) # Brief wait for visual confirmation
+            await asyncio.sleep(2) 
         except Exception as e:
             return f"Error navigating: {str(e)}"
 
@@ -40,8 +39,11 @@ class BrowserManager:
 
     async def take_screenshot(self, path="screenshot.png"):
         if self.page:
-            await self.page.screenshot(path=path)
-            return path
+            try:
+                await self.page.screenshot(path=path, timeout=Config.TIMEOUT)
+                return path
+            except Exception:
+                return None
         return None
 
     async def execute_generated_test(self, code: str):
@@ -54,7 +56,7 @@ class BrowserManager:
         with open(filename, "w", encoding="utf-8") as f:
             f.write(code)
             
-        # Run in a separate process to ensure isolation
+        # Run in a separate process
         proc = await asyncio.create_subprocess_exec(
             "python", filename,
             stdout=asyncio.subprocess.PIPE,
@@ -64,8 +66,9 @@ class BrowserManager:
         stdout, stderr = await proc.communicate()
         
         output = ""
-        if stdout: output += stdout.decode()
-        if stderr: output += "\nERROR:\n" + stderr.decode()
+        # FIX: Use errors='replace' to safely handle non-UTF-8 characters (like 0xd7)
+        if stdout: output += stdout.decode(errors='replace')
+        if stderr: output += "\nERROR:\n" + stderr.decode(errors='replace')
         
         return output
 

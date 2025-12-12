@@ -1,6 +1,5 @@
 import pytest
 from app.core.llm import get_llm
-from langchain.schema import HumanMessage
 import os
 
 def test_llm_instantiation():

@@ -2,7 +2,8 @@ from app.core.state import AgentState
 from app.core.llm import get_llm
 from app.engine.browser import BrowserManager
 from app.engine.dom_cleaner import DOMCleaner
-from langchain.schema import HumanMessage
+# UPDATED IMPORT:
+from langchain_core.messages import HumanMessage
 
 # Global browser instance to persist state across nodes
 browser = BrowserManager()
