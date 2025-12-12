@@ -1,0 +1,34 @@
+import time
+from dataclasses import dataclass, field
+from typing import List, Dict, Any
+
+@dataclass
+class MetricsTracker:
+    """
+    Tracks 'Agent's Brain' metrics (Tokens & Time).
+    """
+    total_tokens: int = 0
+    start_time: float = field(default_factory=time.time)
+    step_times: List[Dict[str, Any]] = field(default_factory=list)
+
+    def add_tokens(self, count: int):
+        """Updates total token consumption."""
+        if count:
+            self.total_tokens += count
+
+    def log_step(self, step_name: str):
+        """Logs the timing of a specific workflow step."""
+        current = time.time()
+        duration = current - self.start_time
+        self.step_times.append({
+            "step": step_name, 
+            "timestamp": current,
+            "cumulative_duration": round(duration, 2)
+        })
+
+    def get_stats(self):
+        """Returns formatted stats for the UI."""
+        return {
+            "tokens": self.total_tokens,
+            "duration": round(time.time() - self.start_time, 2)
+        }

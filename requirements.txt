@@ -1,0 +1,9 @@
+chainlit
+langchain
+langchain-google-genai
+langgraph
+playwright
+beautifulsoup4
+python-dotenv
+pytest
+pytest-asyncio
