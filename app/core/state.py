@@ -25,6 +25,7 @@ class AgentState(TypedDict):
     execution_logs: str
     test_results: str # "Passed" or "Failed"
     
-    # Refinement Loop State
+    # Refinement Loop State & Human Feedback
     attempt_count: int
     error_feedback: str
+    user_feedback: str # New field for Human-in-the-Loop interaction

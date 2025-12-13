@@ -3,9 +3,8 @@ from app.core.llm import get_llm
 from app.engine.browser import BrowserManager
 from app.engine.dom_cleaner import DOMCleaner
 from langchain_core.messages import HumanMessage
-import asyncio
 
-# Global browser instance to persist state across nodes
+# Global browser instance
 browser = BrowserManager()
 
 async def node_explore(state: AgentState):
@@ -19,7 +18,6 @@ async def node_explore(state: AgentState):
     clean_dom = DOMCleaner.clean_dom(raw_html)
     screenshot = await browser.take_screenshot()
     
-    # LLM Analysis
     llm = get_llm()
     prompt = f"""
     Analyze this DOM structure for a QA testing agent.
@@ -46,9 +44,6 @@ async def node_design(state: AgentState):
     """
     Phase 2: Collaborative Test Design.
     """
-    print("⏳ Waiting to avoid rate limits...")
-    await asyncio.sleep(5)  # <--- THROTTLING ADDED
-    
     llm = get_llm()
     summary = state['page_summary']
     
@@ -70,13 +65,15 @@ async def node_implement(state: AgentState):
     """
     Phase 3: Implementation.
     """
-    print("⏳ Waiting to avoid rate limits...")
-    await asyncio.sleep(5)  # <--- THROTTLING ADDED
-    
     llm = get_llm()
     plan = state['test_plan']
     dom = state['clean_dom']
+    
+    # Combine automated error feedback and human feedback
     feedback = state.get('error_feedback', "")
+    user_feedback = state.get('user_feedback', "")
+    
+    full_feedback = f"System Errors: {feedback}\nHuman Review Feedback: {user_feedback}"
     
     prompt = f"""
     You are a Senior SDET. Write a Python script using Playwright to test this page.
@@ -84,7 +81,7 @@ async def node_implement(state: AgentState):
     URL: {state['url']}
     Test Plan: {plan}
     DOM Context: {dom}
-    Previous Errors: {feedback}
+    Feedback/Refinements: {full_feedback}
     
     STRICT CONSTRAINTS:
     1. Output ONLY the Python code. No markdown.
@@ -122,3 +119,9 @@ async def node_verify(state: AgentState):
         "test_results": result,
         "attempt_count": state['attempt_count'] + 1
     }
+
+async def node_human_approval(state: AgentState):
+    """
+    Passive node to allow Human Critique interrupt.
+    """
+    pass
