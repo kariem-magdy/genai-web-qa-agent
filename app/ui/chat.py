@@ -79,24 +79,8 @@ async def main(message: cl.Message):
             await cl.Message(content="🔄 **Critique Received.** Re-implementing...").send()
             # Update feedback and force loop back to 'implement'
             await app_graph.aupdate_state(config, {"user_feedback": user_input, "attempt_count": 0}, as_node="human_approval")
-            # We must map the 'human_approval' node to 'implement' explicitly or let the graph config handle it.
-            # Since we manually updated state as if 'human_approval' ran, the next run will naturally go to END 
-            # UNLESS we direct it. 
-            # SIMPLER APPROACH: We update the state, and since we are "at" human_approval, 
-            # we effectively want to "GOTO" implement.
-            # LangGraph allows generic state updates, but looping requires edge logic or 'goto'.
-            # For simplicity: We will just run the 'implement' node again by updating the state and letting the user know.
-            # Ideally, we'd use `app_graph.ainvoke` with a specific target, but let's stick to standard flow.
-            # Hack: set next to 'implement' manually? No.
-            # Correct LangGraph Way: The edge from 'human_approval' -> END is fixed. 
-            # To loop, we should have had a conditional edge.
-            # FIX: We will just trigger a new run starting from 'implement' with the new state.
             inputs = None
             resume_graph = True
-            # Note: In the Graph definition above, I added edge human_approval->END. 
-            # To loop back, we actually need to change the graph definition OR 
-            # just treat this as a "New Run" starting at 'implement'.
-            # Let's do the latter for robustness.
 
     # 2. RUN THE GRAPH
     # Active message tracker
@@ -144,11 +128,14 @@ async def main(message: cl.Message):
             elif name == "design":
                 plan = output.get("test_plan", "")
                 current_msg.content = f"**📝 Test Plan Created**\n\n{plan}"
-                # Add Action Buttons for Interaction
+                
+                # FIX: Added required 'payload' field and assigned actions to the message
                 actions = [
-                    cl.Action(name="approve_plan", value="approve", label="✅ Approve"),
-                    cl.Action(name="reject_plan", value="reject", label="💬 Critique")
+                    cl.Action(name="approve_plan", value="approve", payload={"value": "approve"}, label="✅ Approve"),
+                    cl.Action(name="reject_plan", value="reject", payload={"value": "reject"}, label="💬 Critique")
                 ]
+                current_msg.actions = actions
+                
                 await current_msg.update()
                 await cl.Message(content="**Waiting for review:** Type 'approve' to proceed, or type your feedback/changes.").send()
 
