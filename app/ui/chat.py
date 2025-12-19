@@ -19,7 +19,7 @@ async def start():
     cl.user_session.set("metrics", MetricsTracker())
     # Generate a unique thread ID for this user session's graph state
     cl.user_session.set("thread_id", str(uuid.uuid4()))
-    await cl.Message(content="**🚀 QA Testing Agent**\n\nFeatures:\n- 🌊 Streaming Tokens\n- 🤝 Human-in-the-Loop Reviews\n\nEnter a **URL** to begin.").send()
+    await cl.Message(content="**🚀 QA Testing Agent**\n\nFeatures:\n- 🌊 Streaming Tokens\n- 🤝 Human-in-the-Loop Reviews\n- 📊 Real-time Metrics\n\nEnter a **URL** to begin.").send()
 
 @cl.on_message
 async def main(message: cl.Message):
@@ -30,7 +30,6 @@ async def main(message: cl.Message):
     config = {"configurable": {"thread_id": thread_id}}
     
     # 1. CHECK CURRENT GRAPH STATE
-    # We check if the graph is currently paused waiting for input
     current_state = await app_graph.aget_state(config)
     next_node = current_state.next[0] if current_state.next else None
     
@@ -39,7 +38,6 @@ async def main(message: cl.Message):
 
     # --- SCENARIO A: NEW URL (Start Fresh) ---
     if not next_node:
-        # Reset Metrics for accurate "Explore" timing
         metrics.start_time = time.time()
         metrics.last_time = metrics.start_time
         metrics.total_tokens = 0
@@ -59,14 +57,12 @@ async def main(message: cl.Message):
         user_input = message.content
         if "approve" in user_input.lower():
             await cl.Message(content="✅ **Plan Approved.** Generating code...").send()
-            # Update state with empty feedback (approval)
             await app_graph.aupdate_state(config, {"user_feedback": ""})
         else:
-            await cl.Message(content=f"📝 **Feedback Received.** Refine & Implementing...").send()
-            # Update state with feedback
+            await cl.Message(content=f"📝 **Feedback Received.** Refining & Implementing...").send()
             await app_graph.aupdate_state(config, {"user_feedback": user_input, "test_plan": current_state.values['test_plan'] + f"\nUser Feedback: {user_input}"})
         
-        inputs = None # No new input, just resume
+        inputs = None
         resume_graph = True
 
     # --- SCENARIO C: CRITIQUING RESULTS (Paused at 'human_approval') ---
@@ -74,16 +70,14 @@ async def main(message: cl.Message):
         user_input = message.content
         if "approve" in user_input.lower() or "good" in user_input.lower():
              await cl.Message(content="🎉 **Workflow Complete.**").send()
-             return # End here
+             return 
         else:
             await cl.Message(content="🔄 **Critique Received.** Re-implementing...").send()
-            # Update feedback and force loop back to 'implement'
             await app_graph.aupdate_state(config, {"user_feedback": user_input, "attempt_count": 0}, as_node="human_approval")
             inputs = None
             resume_graph = True
 
     # 2. RUN THE GRAPH
-    # Active message tracker
     current_msg = None
     curr_node = None
 
@@ -116,9 +110,7 @@ async def main(message: cl.Message):
             if name == "explore":
                 summary = output.get("page_summary", "")
                 stats = metrics.get_stats()
-                explore_time = 0.0
-                for s in stats["steps"]:
-                     if s["step"] == "Exploration": explore_time = s.get("step_duration", 0.0)
+                explore_time = next((s["step_duration"] for s in stats["steps"] if s["step"] == "Exploration"), 0.0)
                 
                 current_msg.content = f"**✅ Exploration Complete** (Time: {explore_time}s)\n\n{summary}"
                 if output.get("screenshot_path"):
@@ -128,16 +120,12 @@ async def main(message: cl.Message):
             elif name == "design":
                 plan = output.get("test_plan", "")
                 current_msg.content = f"**📝 Test Plan Created**\n\n{plan}"
-                
-                # FIX: Added required 'payload' field and assigned actions to the message
-                actions = [
+                current_msg.actions = [
                     cl.Action(name="approve_plan", value="approve", payload={"value": "approve"}, label="✅ Approve"),
                     cl.Action(name="reject_plan", value="reject", payload={"value": "reject"}, label="💬 Critique")
                 ]
-                current_msg.actions = actions
-                
                 await current_msg.update()
-                await cl.Message(content="**Waiting for review:** Type 'approve' to proceed, or type your feedback/changes.").send()
+                await cl.Message(content="**Waiting for review:** Type 'approve' to proceed, or type your feedback.").send()
 
             elif name == "implement":
                 code = output.get("generated_code", "")
@@ -151,7 +139,12 @@ async def main(message: cl.Message):
                 current_msg.content = f"**{status_icon} Verification {result}**\n\nLogs:\n```\n{logs}\n```"
                 await current_msg.update()
                 
-                # Show Metrics Footer
+                # --- DISPLAY METRICS TABLE ---
                 stats = metrics.get_stats()
-                await cl.Message(content=f"--- \n**📊 Total Metrics**: {stats['tokens']} Tokens | {stats['duration']}s").send()
+                metrics_table = "| Phase | Duration | Status |\n|-------|----------|--------|\n"
+                for step in stats['steps']:
+                    metrics_table += f"| {step['step']} | {step['step_duration']}s | Completed |\n"
+                
+                await cl.Message(content=f"### 📊 Execution Metrics\n\n{metrics_table}\n"
+                                         f"**Total Time:** {stats['duration']}s | **Total Tokens:** {stats['tokens']}").send()
                 await cl.Message(content="**Review Results:** Type 'approve' to finish, or type feedback to Re-Implement.").send()

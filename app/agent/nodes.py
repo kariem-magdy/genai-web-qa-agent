@@ -3,10 +3,12 @@ from app.core.llm import get_llm
 from app.engine.browser import BrowserManager
 from app.engine.dom_cleaner import DOMCleaner
 from langchain_core.messages import HumanMessage
+from app.core.observability import observe_phase  # New Import
 
 # Global browser instance
 browser = BrowserManager()
 
+@observe_phase("Exploration")  # Instrumentation
 async def node_explore(state: AgentState):
     """
     Phase 1: Exploration.
@@ -40,6 +42,7 @@ async def node_explore(state: AgentState):
         "attempt_count": 0 
     }
 
+@observe_phase("Design")  # Instrumentation
 async def node_design(state: AgentState):
     """
     Phase 2: Collaborative Test Design.
@@ -61,6 +64,7 @@ async def node_design(state: AgentState):
     
     return {"test_plan": response.content}
 
+@observe_phase("Implementation")  # Instrumentation
 async def node_implement(state: AgentState):
     """
     Phase 3: Implementation.
@@ -101,6 +105,7 @@ async def node_implement(state: AgentState):
     
     return {"generated_code": code}
 
+@observe_phase("Verification")  # Instrumentation
 async def node_verify(state: AgentState):
     """
     Phase 4: Verification.
