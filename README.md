@@ -47,13 +47,3 @@ High-level structure (most relevant paths):
 
 ---
 
-## Setup
-
-### 1) Create and activate a virtual environment
-
-````bash
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate

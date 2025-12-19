@@ -34,7 +34,6 @@ async def main(message: cl.Message):
     next_node = current_state.next[0] if current_state.next else None
     
     inputs = None
-    resume_graph = False
 
     # --- SCENARIO A: NEW URL (Start Fresh) ---
     if not next_node:
@@ -61,10 +60,7 @@ async def main(message: cl.Message):
         else:
             await cl.Message(content=f"📝 **Feedback Received.** Refining & Implementing...").send()
             await app_graph.aupdate_state(config, {"user_feedback": user_input, "test_plan": current_state.values['test_plan'] + f"\nUser Feedback: {user_input}"})
-        
-        inputs = None
-        resume_graph = True
-
+    
     # --- SCENARIO C: CRITIQUING RESULTS (Paused at 'human_approval') ---
     elif next_node == "human_approval":
         user_input = message.content
@@ -74,12 +70,9 @@ async def main(message: cl.Message):
         else:
             await cl.Message(content="🔄 **Critique Received.** Re-implementing...").send()
             await app_graph.aupdate_state(config, {"user_feedback": user_input, "attempt_count": 0}, as_node="human_approval")
-            inputs = None
-            resume_graph = True
 
     # 2. RUN THE GRAPH
     current_msg = None
-    curr_node = None
 
     async for event in app_graph.astream_events(inputs, config, version="v1"):
         kind = event["event"]
@@ -87,7 +80,6 @@ async def main(message: cl.Message):
         
         # --- UI STREAMING LOGIC ---
         if kind == "on_chain_start" and name in ["explore", "design", "implement", "verify"]:
-            curr_node = name
             if name == "explore":
                 current_msg = cl.Message(content="**🔎 Exploring Page...**\n")
             elif name == "design":
@@ -96,7 +88,6 @@ async def main(message: cl.Message):
                 current_msg = cl.Message(content="**💻 Implementing Code...**\n```python\n")
             elif name == "verify":
                 current_msg = cl.Message(content="**🧪 Verifying Tests...**\n")
-            
             await current_msg.send()
 
         elif kind == "on_chat_model_stream" and current_msg:
@@ -108,43 +99,32 @@ async def main(message: cl.Message):
             if not output: continue
 
             if name == "explore":
-                summary = output.get("page_summary", "")
-                stats = metrics.get_stats()
-                explore_time = next((s["step_duration"] for s in stats["steps"] if s["step"] == "Exploration"), 0.0)
-                
-                current_msg.content = f"**✅ Exploration Complete** (Time: {explore_time}s)\n\n{summary}"
+                current_msg.content = f"**✅ Exploration Complete**\n\n{output.get('page_summary', '')}"
                 if output.get("screenshot_path"):
-                    current_msg.elements = [cl.Image(path=output["screenshot_path"], name="initial_state", display="inline")]
+                    current_msg.elements = [cl.Image(path=output["screenshot_path"], name="init", display="inline")]
                 await current_msg.update()
 
             elif name == "design":
-                plan = output.get("test_plan", "")
-                current_msg.content = f"**📝 Test Plan Created**\n\n{plan}"
+                current_msg.content = f"**📝 Test Plan Created**\n\n{output.get('test_plan', '')}"
                 current_msg.actions = [
-                    cl.Action(name="approve_plan", value="approve", payload={"value": "approve"}, label="✅ Approve"),
-                    cl.Action(name="reject_plan", value="reject", payload={"value": "reject"}, label="💬 Critique")
+                    cl.Action(name="approve_plan", value="approve", label="✅ Approve"),
+                    cl.Action(name="reject_plan", value="reject", label="💬 Critique")
                 ]
                 await current_msg.update()
-                await cl.Message(content="**Waiting for review:** Type 'approve' to proceed, or type your feedback.").send()
 
             elif name == "implement":
-                code = output.get("generated_code", "")
-                current_msg.content = f"**💻 Code Generated**\n```python\n{code}\n```"
+                current_msg.content = f"**💻 Code Generated**\n```python\n{output.get('generated_code', '')}\n```"
                 await current_msg.update()
 
             elif name == "verify":
-                logs = output.get("execution_logs", "")
-                result = output.get("test_results", "")
-                status_icon = "🎉" if result == "Passed" else "⚠️"
-                current_msg.content = f"**{status_icon} Verification {result}**\n\nLogs:\n```\n{logs}\n```"
+                res = output.get("test_results", "")
+                current_msg.content = f"**{'🎉' if res == 'Passed' else '⚠️'} Verification {res}**\n\nLogs:\n```\n{output.get('execution_logs', '')}\n```"
                 await current_msg.update()
                 
-                # --- DISPLAY METRICS TABLE ---
+                # --- 📊 FINAL METRICS DISPLAY ---
                 stats = metrics.get_stats()
-                metrics_table = "| Phase | Duration | Status |\n|-------|----------|--------|\n"
-                for step in stats['steps']:
-                    metrics_table += f"| {step['step']} | {step['step_duration']}s | Completed |\n"
+                table = "| Phase | Duration | Tokens |\n|-------|----------|--------|\n"
+                for s in stats['steps']:
+                    table += f"| {s['step']} | {s['duration']}s | {s.get('tokens', 'Trace...')} |\n"
                 
-                await cl.Message(content=f"### 📊 Execution Metrics\n\n{metrics_table}\n"
-                                         f"**Total Time:** {stats['duration']}s | **Total Tokens:** {stats['tokens']}").send()
-                await cl.Message(content="**Review Results:** Type 'approve' to finish, or type feedback to Re-Implement.").send()
+                await cl.Message(content=f"### 📊 Execution Metrics\n\n{table}\n**Total Tokens:** {stats['tokens']} | **Total Time:** {stats['duration']}s").send()

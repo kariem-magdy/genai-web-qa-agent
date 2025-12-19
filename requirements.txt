@@ -7,5 +7,5 @@ beautifulsoup4
 python-dotenv
 pytest
 pytest-asyncio
-langfuse
+langfuse>=2.0.0
 pydantic

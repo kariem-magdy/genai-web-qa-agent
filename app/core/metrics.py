@@ -9,12 +9,20 @@ class MetricsTracker:
     last_time: float = field(default_factory=time.time) 
     step_times: List[Dict[str, Any]] = field(default_factory=list)
 
+    def add_tokens(self, count: int):
+        """Updates total token consumption."""
+        if count:
+            self.total_tokens += count
+
     def log_step(self, step_name: str, tokens: int = 0):
         """Logs the timing and token count of a specific workflow step."""
         current = time.time()
         step_duration = current - self.last_time
         self.last_time = current
-        self.total_tokens += tokens
+        
+        # If tokens are passed here, add them (though nodes.py calls add_tokens separately)
+        if tokens:
+            self.add_tokens(tokens)
         
         self.step_times.append({
             "step": step_name, 
