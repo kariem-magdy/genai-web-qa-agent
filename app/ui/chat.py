@@ -10,6 +10,7 @@ import chainlit as cl
 from app.agent.graph import build_graph
 from app.core.metrics import MetricsTracker
 from app.core.state import AgentState
+from app.core.tracing import langfuse  # [Integration] Import robust tracing
 
 # Initialize graph with persistence
 app_graph = build_graph()
@@ -20,7 +21,9 @@ async def start():
     cl.user_session.set("thread_id", str(uuid.uuid4()))
     cl.user_session.set("workflow_complete", False)
     cl.user_session.set("previous_urls", [])
-    await cl.Message(content="**🚀 QA Testing Agent**\n\nFeatures:\n- 🌊 Streaming Tokens\n- 🤝 Human-in-the-Loop Reviews\n- 🔄 Multi-URL Testing\n\nEnter a **URL** to begin.").send()
+    cl.user_session.set("trace", None) # [Integration] Initialize trace storage
+    
+    await cl.Message(content="**🚀 QA Testing Agent**\n\nFeatures:\n- 🌊 Streaming Tokens\n- 🤝 Human-in-the-Loop Reviews\n- 🔄 Multi-URL Testing\n- 🔍 **Langfuse Tracing Active**\n\nEnter a **URL** to begin.").send()
 
 @cl.on_message
 async def main(message: cl.Message):
@@ -29,6 +32,9 @@ async def main(message: cl.Message):
     workflow_complete = cl.user_session.get("workflow_complete", False)
     previous_urls = cl.user_session.get("previous_urls", [])
     
+    # [Integration] Retrieve active trace for this session
+    trace = cl.user_session.get("trace")
+    
     config = {"configurable": {"thread_id": thread_id}}
     
     current_state = await app_graph.aget_state(config)
@@ -36,6 +42,7 @@ async def main(message: cl.Message):
     
     inputs = None
     resume_graph = False
+    step_name = "unknown_step" # For trace labeling
 
     # Helper function to detect if message is a URL
     def is_url(text: str) -> bool:
@@ -69,40 +76,44 @@ async def main(message: cl.Message):
             test_results="Pending", attempt_count=0, error_feedback="", 
             user_feedback="", approved=False
         )
+        step_name = "initial_execution"
+        
+        # [Integration] Start NEW Trace for this unique test run
+        trace = langfuse.trace(
+            name="chainlit-qa-run", 
+            session_id=thread_id,
+            metadata={"url": url, "interface": "chainlit"}
+        )
+        cl.user_session.set("trace", trace)
     
     # --- SCENARIO B: REVIEWING TEST PLAN (Paused at 'implement') ---
     elif next_node == "implement":
         user_input = message.content
         if "approve" in user_input.lower():
             await cl.Message(content="✅ **Plan Approved.** Generating code...").send()
-            # Clear feedback and mark as approved to proceed
             await app_graph.aupdate_state(config, {"user_feedback": "", "approved": False})
         else:
-            # User provided critique - send back to design node
             await cl.Message(content=f"📝 **Feedback Received:** {user_input}\n\nRe-designing test plan...").send()
-            # Set feedback and route back to design by pretending verify finished
             await app_graph.aupdate_state(
                 config, 
                 {"user_feedback": user_input, "approved": False},
-                as_node="verify"  # Pretend verify node completed, which flows to human_approval
+                as_node="verify"
             )
-        
         inputs = None
         resume_graph = True
+        step_name = "plan_review"
 
     # --- SCENARIO C: CRITIQUING RESULTS (Paused at 'human_approval') ---
     elif next_node == "human_approval":
         user_input = message.content
         if "approve" in user_input.lower() or "good" in user_input.lower():
             await cl.Message(content="🎉 **Workflow Approved & Complete!**").send()
-            # Mark as approved and let the graph end naturally
             await app_graph.aupdate_state(config, {"approved": True, "user_feedback": ""})
-            # Mark workflow as complete for this session
             cl.user_session.set("workflow_complete", True)
             inputs = None
             resume_graph = True
+            step_name = "final_approval"
         else:
-            # User provided critique - send back to design with feedback
             await cl.Message(content=f"🔄 **Critique Received:** {user_input}\n\nRe-designing based on feedback...").send()
             await app_graph.aupdate_state(
                 config, 
@@ -110,74 +121,88 @@ async def main(message: cl.Message):
             )
             inputs = None
             resume_graph = True
+            step_name = "result_critique"
 
     # 2. RUN THE GRAPH
     current_msg = None
 
-    async for event in app_graph.astream_events(inputs, config, version="v1"):
-        kind = event["event"]
-        name = event["name"]
-        
-        if kind == "on_chain_start" and name in ["explore", "design", "implement", "verify"]:
-            if name == "explore":
-                current_msg = cl.Message(content="**🔎 Exploring Page...**\n")
-            elif name == "design":
-                current_msg = cl.Message(content="**📝 Designing Test Plan...**\n")
-            elif name == "implement":
-                current_msg = cl.Message(content="**💻 Implementing Code...**\n```python\n")
-            elif name == "verify":
-                current_msg = cl.Message(content="**🧪 Verifying Tests...**\n")
+    # [Integration] Wrap the execution loop in a Span
+    if not trace:
+        # Fallback if state was lost (should not happen normally)
+        trace = langfuse.trace(name="chainlit-fallback", session_id=thread_id)
+        cl.user_session.set("trace", trace)
+
+    span = trace.span(name=step_name, input=message.content)
+    try:
+        async for event in app_graph.astream_events(inputs, config, version="v1"):
+            kind = event["event"]
+            name = event["name"]
             
-            await current_msg.send()
-
-        elif kind == "on_chat_model_stream" and current_msg:
-            token = event["data"]["chunk"].content
-            if token: await current_msg.stream_token(token)
-
-        elif kind == "on_chain_end" and name in ["explore", "design", "implement", "verify"]:
-            output = event["data"].get("output")
-            if not output: continue
-
-            if name == "explore":
-                summary = output.get("page_summary", "")
-                stats = metrics.get_stats()
-                explore_time = next((s["step_duration"] for s in stats["steps"] if s["step"] == "Exploration"), 0.0)
+            if kind == "on_chain_start" and name in ["explore", "design", "implement", "verify"]:
+                if name == "explore":
+                    current_msg = cl.Message(content="**🔎 Exploring Page...**\n")
+                elif name == "design":
+                    current_msg = cl.Message(content="**📝 Designing Test Plan...**\n")
+                elif name == "implement":
+                    current_msg = cl.Message(content="**💻 Implementing Code...**\n```python\n")
+                elif name == "verify":
+                    current_msg = cl.Message(content="**🧪 Verifying Tests...**\n")
                 
-                current_msg.content = f"**✅ Exploration Complete** (Time: {explore_time}s)\n\n{summary}"
-                if output.get("screenshot_path"):
-                    current_msg.elements = [cl.Image(path=output["screenshot_path"], name="initial_state", display="inline")]
-                await current_msg.update()
+                if current_msg: await current_msg.send()
 
-            elif name == "design":
-                plan = output.get("test_plan", "")
-                current_msg.content = f"**📝 Test Plan Created**\n\n{plan}"
-                actions = [
-                    cl.Action(name="approve_plan", value="approve", payload={"value": "approve"}, label="✅ Approve"),
-                    cl.Action(name="reject_plan", value="reject", payload={"value": "reject"}, label="💬 Critique")
-                ]
-                current_msg.actions = actions
-                await current_msg.update()
-                await cl.Message(content="**Waiting for review:** Type 'approve' to proceed, or type your feedback/changes.").send()
+            elif kind == "on_chat_model_stream" and current_msg:
+                token = event["data"]["chunk"].content
+                if token: await current_msg.stream_token(token)
 
-            elif name == "implement":
-                code = output.get("generated_code", "")
-                current_msg.content = f"**💻 Code Generated**\n```python\n{code}\n```"
-                await current_msg.update()
+            elif kind == "on_chain_end" and name in ["explore", "design", "implement", "verify"]:
+                output = event["data"].get("output")
+                if not output: continue
 
-            elif name == "verify":
-                logs = output.get("execution_logs", "")
-                result = output.get("test_results", "")
-                status_icon = "🎉" if result == "Passed" else "⚠️"
-                current_msg.content = f"**{status_icon} Verification {result}**\n\nLogs:\n```\n{logs}\n```"
-                await current_msg.update()
-                
-                stats = metrics.get_stats()
-                await cl.Message(content=f"--- \n**📊 Total Metrics**: {stats['tokens']} Tokens | {stats['duration']}s").send()
-                await cl.Message(content="**Review Results:** Type 'approve' to finish, or type feedback to Re-Implement.").send()
+                if name == "explore":
+                    summary = output.get("page_summary", "")
+                    stats = metrics.get_stats()
+                    explore_time = next((s["step_duration"] for s in stats["steps"] if s["step"] == "Exploration"), 0.0)
+                    
+                    current_msg.content = f"**✅ Exploration Complete** (Time: {explore_time}s)\n\n{summary}"
+                    if output.get("screenshot_path"):
+                        current_msg.elements = [cl.Image(path=output["screenshot_path"], name="initial_state", display="inline")]
+                    await current_msg.update()
+
+                elif name == "design":
+                    plan = output.get("test_plan", "")
+                    current_msg.content = f"**📝 Test Plan Created**\n\n{plan}"
+                    actions = [
+                        cl.Action(name="approve_plan", value="approve", payload={"value": "approve"}, label="✅ Approve"),
+                        cl.Action(name="reject_plan", value="reject", payload={"value": "reject"}, label="💬 Critique")
+                    ]
+                    current_msg.actions = actions
+                    await current_msg.update()
+                    await cl.Message(content="**Waiting for review:** Type 'approve' to proceed, or type your feedback/changes.").send()
+
+                elif name == "implement":
+                    code = output.get("generated_code", "")
+                    current_msg.content = f"**💻 Code Generated**\n```python\n{code}\n```"
+                    await current_msg.update()
+
+                elif name == "verify":
+                    logs = output.get("execution_logs", "")
+                    result = output.get("test_results", "")
+                    status_icon = "🎉" if result == "Passed" else "⚠️"
+                    current_msg.content = f"**{status_icon} Verification {result}**\n\nLogs:\n```\n{logs}\n```"
+                    await current_msg.update()
+                    
+                    stats = metrics.get_stats()
+                    await cl.Message(content=f"--- \n**📊 Total Metrics**: {stats['tokens']} Tokens | {stats['duration']}s").send()
+                    await cl.Message(content="**Review Results:** Type 'approve' to finish, or type feedback to Re-Implement.").send()
+    finally:
+        span.end()
     
     # Check if workflow just completed and prompt for new URL
     final_state = await app_graph.aget_state(config)
     if not final_state.next and cl.user_session.get("workflow_complete"):
+        # [Integration] Flush traces ensuring data is sent
+        langfuse.flush()
+        
         previous_urls = cl.user_session.get("previous_urls", [])
         session_num = len(previous_urls) + 1
         await cl.Message(content=f"\n---\n\n✨ **Ready for next test!**\n\n📝 Completed sessions: {session_num}\n\nEnter a new **URL** to test, or ask questions about previous results.").send()

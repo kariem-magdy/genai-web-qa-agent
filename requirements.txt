@@ -7,3 +7,5 @@ beautifulsoup4
 python-dotenv
 pytest
 pytest-asyncio
+langfuse
+loguru

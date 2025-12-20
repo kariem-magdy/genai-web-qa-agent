@@ -3,10 +3,12 @@ from app.core.llm import get_llm
 from app.engine.browser import BrowserManager
 from app.engine.dom_cleaner import DOMCleaner
 from langchain_core.messages import HumanMessage
+from app.core.tracing import observe # Import robust observer
 
 # Global browser instance
 browser = BrowserManager()
 
+@observe(name="explore")
 async def node_explore(state: AgentState):
     """Phase 1: Exploration."""
     url = state['url']
@@ -38,6 +40,8 @@ async def node_explore(state: AgentState):
         "attempt_count": 0 
     }
 
+
+@observe(name="design")
 async def node_design(state: AgentState):
     """Phase 2: Collaborative Test Design."""
     llm = get_llm()
@@ -80,6 +84,7 @@ async def node_design(state: AgentState):
         "approved": False  # Reset approval status
     }
 
+@observe(name="implement")
 async def node_implement(state: AgentState):
     """Phase 3: Implementation."""
     llm = get_llm()
@@ -117,6 +122,7 @@ async def node_implement(state: AgentState):
     
     return {"generated_code": code}
 
+@observe(name="verify")
 async def node_verify(state: AgentState):
     """Phase 4: Verification."""
     code = state['generated_code']
@@ -134,6 +140,7 @@ async def node_verify(state: AgentState):
         "attempt_count": state['attempt_count'] + 1
     }
 
+@observe(name="human_approval")
 async def node_human_approval(state: AgentState):
     """Passive node to allow Human Critique interrupt."""
     # This node just pauses for human input
