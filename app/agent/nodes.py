@@ -3,16 +3,12 @@ from app.core.llm import get_llm
 from app.engine.browser import BrowserManager
 from app.engine.dom_cleaner import DOMCleaner
 from langchain_core.messages import HumanMessage
-from app.core.observability import observe_phase  # New Import
 
 # Global browser instance
 browser = BrowserManager()
 
-@observe_phase("Exploration")  # Instrumentation
 async def node_explore(state: AgentState):
-    """
-    Phase 1: Exploration.
-    """
+    """Phase 1: Exploration."""
     url = state['url']
     await browser.navigate(url)
     
@@ -24,7 +20,7 @@ async def node_explore(state: AgentState):
     prompt = f"""
     Analyze this DOM structure for a QA testing agent.
     1. Identify the main purpose of the page.
-    2. List the top 5 interactive elements (Buttons, Inputs, Links) with their Locators.
+    2. List the interactive elements (Buttons, Inputs, Links) with their Locators.
     
     DOM Content:
     {clean_dom}
@@ -42,13 +38,26 @@ async def node_explore(state: AgentState):
         "attempt_count": 0 
     }
 
-@observe_phase("Design")  # Instrumentation
 async def node_design(state: AgentState):
-    """
-    Phase 2: Collaborative Test Design.
-    """
+    """Phase 2: Collaborative Test Design."""
     llm = get_llm()
     summary = state['page_summary']
+    user_feedback = state.get('user_feedback', "")
+    previous_plan = state.get('test_plan', "")
+    
+    # Build context-aware prompt
+    feedback_context = ""
+    if user_feedback and len(user_feedback.strip()) > 0:
+        feedback_context = f"""
+    
+    CRITICAL: The user provided the following feedback on the previous test plan:
+    Previous Plan: {previous_plan}
+    
+    USER FEEDBACK/CRITIQUE:
+    {user_feedback}
+    
+    You MUST revise the test plan to fully address this feedback. Do not ignore any of the user's requests.
+    """
     
     prompt = f"""
     Based on the page analysis below, propose a Test Plan.
@@ -56,24 +65,27 @@ async def node_design(state: AgentState):
     
     Page Analysis:
     {summary}
+    {feedback_context}
     """
+    
     response = llm.invoke([HumanMessage(content=prompt)])
     
     state['metrics'].add_tokens(response.usage_metadata.get('total_tokens', 0))
     state['metrics'].log_step("Design")
     
-    return {"test_plan": response.content}
+    # Clear user_feedback after incorporating it
+    return {
+        "test_plan": response.content,
+        "user_feedback": "",  # Clear feedback after processing
+        "approved": False  # Reset approval status
+    }
 
-@observe_phase("Implementation")  # Instrumentation
 async def node_implement(state: AgentState):
-    """
-    Phase 3: Implementation.
-    """
+    """Phase 3: Implementation."""
     llm = get_llm()
     plan = state['test_plan']
     dom = state['clean_dom']
     
-    # Combine automated error feedback and human feedback
     feedback = state.get('error_feedback', "")
     user_feedback = state.get('user_feedback', "")
     
@@ -105,11 +117,8 @@ async def node_implement(state: AgentState):
     
     return {"generated_code": code}
 
-@observe_phase("Verification")  # Instrumentation
 async def node_verify(state: AgentState):
-    """
-    Phase 4: Verification.
-    """
+    """Phase 4: Verification."""
     code = state['generated_code']
     logs = await browser.execute_generated_test(code)
     
@@ -126,7 +135,7 @@ async def node_verify(state: AgentState):
     }
 
 async def node_human_approval(state: AgentState):
-    """
-    Passive node to allow Human Critique interrupt.
-    """
-    pass
+    """Passive node to allow Human Critique interrupt."""
+    # This node just pauses for human input
+    # Return empty dict to keep state unchanged
+    return {}

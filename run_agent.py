@@ -30,7 +30,9 @@ async def run_cli():
         execution_logs="", 
         test_results="Pending", 
         attempt_count=0, 
-        error_feedback=""
+        error_feedback="",
+        user_feedback="",
+        approved=False
     )
     
     print("\nRunning Workflow...")

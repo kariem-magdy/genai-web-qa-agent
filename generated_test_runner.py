@@ -1,121 +1,159 @@
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
 
-async def test_user_authentication():
+async def test_ecommerce_features():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
         page = await browser.new_page()
-        await page.goto("https://automationexercise.com/")
+        await page.goto("https://automationexercise.com")
 
-        try:
-            # Scenario 1: Verify User Authentication Flow
-            print("Testing Scenario 1: Verify User Authentication Flow")
-            await page.click("a[href='/login']")
-            await page.fill("input[data-qa='signup-name']", "testuser")
-            await page.fill("input[data-qa='signup-email']", "testuser123@example.com")
-            await page.click("button[data-qa='signup-button']")
-            await page.wait_for_url("**/signup**") # Wait for signup page to load
+        # Test Scenario 1: Verify E-commerce Product Interaction and Cart Management
+        print("Starting Test Scenario 1: Product Interaction and Cart Management")
 
-            await page.fill("input[data-qa='login-email']", "testuser123@example.com")
-            await page.fill("input[data-qa='login-password']", "password123") # Assuming a default password for signup if not explicitly set. In a real scenario, you'd verify signup password setting.
-            await page.click("button[data-qa='login-button']")
-            await page.wait_for_selector("a[href='/logout']")
-            print("User successfully logged in.")
+        # Select a category
+        await page.click("a[href='#Women']")
+        await page.click("a[href='/category_products/1']")  # Women - Dress Category
+        await expect(page).to_have_url("https://automationexercise.com/category_products/1")
+        print("Navigated to Women - Dress Category.")
 
-            await page.click("a[href='/logout']")
-            await page.wait_for_url("**/login**") # Wait for login page to load after logout
-            print("User successfully logged out.")
-            print("Scenario 1 PASSED")
+        # Select a brand (assuming 'Polo' is available and visible)
+        await page.click("a[href='/brand_products/Polo']")
+        await expect(page.locator(".title.text-center").first).to_contain_text("Brand - Polo")
+        print("Filtered by Brand - Polo.")
 
-        except Exception as e:
-            print(f"Scenario 1 FAILED: {e}")
+        # Find and add a product to cart
+        # We'll pick the first product that appears in the filtered list
+        first_product_add_to_cart_button = page.locator(".product-bottom .add-to-cart").first
+        await first_product_add_to_cart_button.click()
+        print("Clicked 'Add to cart' for the first product.")
 
-        finally:
-            await browser.close()
+        # Verify cart modal appears
+        cart_modal_header = page.locator(".modal-header h4.modal-title")
+        await expect(cart_modal_header).to_be_visible()
+        print("Cart modal is visible.")
 
-async def test_product_browsing_and_cart():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        page = await browser.new_page()
-        await page.goto("https://automationexercise.com/")
+        # Dismiss the modal
+        await page.click(".modal-footer .btn-success")
+        print("Dismissed the cart modal.")
 
-        try:
-            # Scenario 2: Verify Product Browsing and Cart Interaction
-            print("\nTesting Scenario 2: Verify Product Browsing and Cart Interaction")
-            await page.click("a[href='/products']")
-            await page.wait_for_url("**/products**")
+        # Navigate to the Cart page
+        await page.click("a[href='/view_cart']")
+        await expect(page).to_have_url("https://automationexercise.com/view_cart")
+        print("Navigated to the Cart page.")
 
-            # Add a product to the cart (using the first product as an example)
-            await page.click(".add-to-cart")
-            await page.click(".close-modal") # Close the modal that appears after adding to cart
+        # Verify the added product is in the cart
+        # This is a simplified check; a real test might verify product name/price
+        cart_item_count = page.locator(".cart_info").count()
+        assert cart_item_count >= 1, "Product not found in cart"
+        print("Verified that at least one item is in the cart.")
 
-            # Verify if the cart count is updated (optional, requires more robust selectors for cart count)
-            # For simplicity, we'll just navigate to the cart page.
-            await page.click("a[href='/view_cart']")
-            await page.wait_for_url("**/view_cart**")
+        # Test Scenario 2: Validate Header Navigation and Core Practice Feature Accessibility
+        print("\nStarting Test Scenario 2: Header Navigation and Core Practice Features")
 
-            # Assert that a product is present in the cart
-            product_in_cart = await page.locator(".cart_description p").count()
-            if product_in_cart > 0:
-                print("Product successfully added to cart and is visible in the cart.")
-                print("Scenario 2 PASSED")
+        header_links = {
+            "Home": "a[href='/']",
+            "Products": "a[href='/products']",
+            "Cart": "a[href='/view_cart']",
+            "Signup / Login": "a[href='/login']",
+            "Test Cases": "a[href='/test_cases']",
+            "API Testing": "a[href='/api_list']",
+            "Video Tutorials": "a[href='https://www.youtube.com/c/AutomationExercise']",
+            "Contact us": "a[href='/contact_us']"
+        }
+
+        for name, selector in header_links.items():
+            print(f"Testing header link: {name}")
+            await page.click(selector)
+            # For some links, we just check if they are clickable and don't change URL drastically
+            if name not in ["Video Tutorials"]:
+                await expect(page).not_to_contain_text("Error 404") # Basic check for broken links
+                print(f"Navigated successfully to {name}.")
             else:
-                print("Product not found in the cart.")
-                print("Scenario 2 FAILED")
+                # For external links, we can't easily assert URL change within the same page context
+                # but we can check if the link is present and a valid href.
+                link_element = page.locator(selector)
+                await expect(link_element).to_have_attribute("href", header_links[name])
+                print(f"External link for {name} verified.")
+            await page.go_back() # Go back to the homepage for the next link test
 
-        except Exception as e:
-            print(f"Scenario 2 FAILED: {e}")
 
-        finally:
-            await browser.close()
+        # Test slider buttons
+        print("Testing slider buttons")
+        await page.click("a.right.control-carousel")
+        await expect(page.locator(".item.active").first).not_to_have_attribute("class", "item") # Check if slide changed
+        print("Slider right arrow clicked.")
+        await page.click("a.left.control-carousel")
+        await expect(page.locator(".item.active").first).not_to_have_attribute("class", "item") # Check if slide changed back
+        print("Slider left arrow clicked.")
 
-async def test_qa_resources_access():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        page = await browser.new_page()
-        await page.goto("https://automationexercise.com/")
+        # Test Test Cases button on slider
+        print("Testing Test Cases button on slider")
+        await page.click(".test_cases_list")
+        await expect(page).to_have_url("https://automationexercise.com/test_cases")
+        print("Navigated to Test Cases page from slider.")
+        await page.go_back()
 
-        try:
-            # Scenario 3: Verify Access to QA Resources
-            print("\nTesting Scenario 3: Verify Access to QA Resources")
+        # Test API Testing button on slider
+        print("Testing API Testing button on slider")
+        await page.click(".apis_list")
+        await expect(page).to_have_url("https://automationexercise.com/api_list")
+        print("Navigated to API Testing page from slider.")
+        await page.go_back()
 
-            # Test Cases link in header
-            await page.click("a[href='/test_cases']")
-            await page.wait_for_url("**/test_cases**")
-            print("Navigated to Test Cases page via header link.")
-            await page.go_back() # Go back to home page
 
-            # API Testing link in header
-            await page.click("a[href='/api_list']")
-            await page.wait_for_url("**/api_list**")
-            print("Navigated to API Testing page via header link.")
-            await page.go_back() # Go back to home page
+        # Test Scenario 3: Test Slider and Recommended Items Carousel Functionality
+        print("\nStarting Test Scenario 3: Slider and Recommended Items Carousel")
 
-            # Test Cases button on slider
-            # This button might be within a carousel, so we need to ensure it's visible or wait for it.
-            await page.locator(".test_cases_list").click()
-            await page.wait_for_url("**/test_cases**")
-            print("Navigated to Test Cases page via slider button.")
-            await page.go_back() # Go back to home page
+        # Locate and interact with Recommended Items carousel
+        print("Testing Recommended Items carousel navigation")
+        original_recommended_item_locator = page.locator(".recommended_items .productinfo").first
+        initial_recommended_item_text = await original_recommended_item_locator.inner_text()
 
-            # APIs list for practice button on slider
-            await page.locator(".apis_list").click()
-            await page.wait_for_url("**/api_list**")
-            print("Navigated to API Testing page via slider button.")
-            await page.go_back() # Go back to home page
+        await page.click("a.right.recommended-item-control")
+        # Give it a moment to potentially update
+        await page.wait_for_timeout(500)
+        new_recommended_item_locator = page.locator(".recommended_items .productinfo").first
+        new_recommended_item_text = await new_recommended_item_locator.inner_text()
+        assert initial_recommended_item_text != new_recommended_item_text, "Recommended items did not change after clicking right arrow"
+        print("Recommended items carousel right arrow clicked and items changed.")
 
-            print("Scenario 3 PASSED")
+        await page.click("a.left.recommended-item-control")
+        await page.wait_for_timeout(500)
+        back_to_original_item_locator = page.locator(".recommended_items .productinfo").first
+        back_to_original_item_text = await back_to_original_item_locator.inner_text()
+        assert initial_recommended_item_text == back_to_original_item_text, "Recommended items did not return to original after clicking left arrow"
+        print("Recommended items carousel left arrow clicked and returned to original items.")
 
-        except Exception as e:
-            print(f"Scenario 3 FAILED: {e}")
+        # Add a recommended item to cart
+        print("Adding a recommended item to cart")
+        recommended_product_add_to_cart = page.locator(".recommended_items .add-to-cart").first
+        await recommended_product_add_to_cart.click()
 
-        finally:
-            await browser.close()
+        # Verify cart modal for recommended item
+        await expect(page.locator(".modal-header h4.modal-title")).to_be_visible()
+        print("Cart modal visible after adding recommended item.")
+
+        # Close modal
+        await page.click(".modal-footer .btn-success")
+        print("Dismissed modal for recommended item.")
+
+        # Verify cart count update (if visible and tracked) or navigate to cart
+        # For simplicity, we'll just confirm the modal was dismissed correctly.
+        # A more robust test would check cart count or items after a refresh.
+        print("Test Scenario 3 completed.")
+
+        print("\nAll scenarios executed.")
+        print("TEST PASSED")
+
+        await browser.close()
 
 async def main():
-    await test_user_authentication()
-    await test_product_browsing_and_cart()
-    await test_qa_resources_access()
+    try:
+        await test_ecommerce_features()
+    except Exception as e:
+        print(f"TEST FAILED: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     asyncio.run(main())

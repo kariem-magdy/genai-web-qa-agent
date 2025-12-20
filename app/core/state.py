@@ -29,3 +29,4 @@ class AgentState(TypedDict):
     attempt_count: int
     error_feedback: str
     user_feedback: str # New field for Human-in-the-Loop interaction
+    approved: bool # Track if user has approved the workflow

@@ -3,15 +3,24 @@ from langgraph.checkpoint.memory import MemorySaver
 from app.core.state import AgentState
 from app.agent.nodes import node_explore, node_design, node_implement, node_verify, node_human_approval
 
-def should_loop(state: AgentState):
+def check_feedback(state: AgentState):
     """
-    Determines if we should loop back to implementation based on Human Critique or Errors.
-    This logic is handled by the Graph interrupt structure, but this conditional 
-    guides the auto-retry logic before human intervention if needed.
+    Router: Checks if feedback exists and user approval status.
+    If critique exists, loop back to Design.
+    If approved or empty, End.
     """
-    # If auto-fail loop is needed (e.g. syntax error), we can loop here.
-    # But strictly for this requirement, we flow to 'human_approval' to let the user decide.
-    return "human_approval"
+    fb = state.get("user_feedback", "")
+    approved = state.get("approved", False)
+    
+    # If explicitly approved, end workflow
+    if approved:
+        return "end"
+    
+    # If there's feedback/critique, go back to design to incorporate it
+    if fb and len(fb.strip()) > 0 and "approve" not in fb.lower():
+        return "design"
+    
+    return "end"
 
 def build_graph():
     """
@@ -32,13 +41,16 @@ def build_graph():
     workflow.add_edge("implement", "verify")
     workflow.add_edge("verify", "human_approval")
     
-    # Loop back from approval to implement (for refinement) or END
-    # This is controlled by the edge definition, but the actual decision 
-    # happens when we resume from interrupt with a specific 'next' node or state update.
-    workflow.add_edge("human_approval", END) 
+    # Conditional routing based on feedback
+    workflow.add_conditional_edges(
+        "human_approval",
+        check_feedback,
+        {
+            "design": "design",  # Go back to redesign based on feedback
+            "end": END            # Finish if approved
+        }
+    )
     
-    # We interrupt BEFORE 'implement' to review the Plan.
-    # We interrupt BEFORE 'human_approval' to review the Verification Results.
     return workflow.compile(
         checkpointer=MemorySaver(),
         interrupt_before=["implement", "human_approval"]
