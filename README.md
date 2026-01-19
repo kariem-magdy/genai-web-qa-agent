@@ -12,7 +12,7 @@ It features a conversational UI that allows users to critique test plans before 
 
 * **Autonomous Page Analysis**: Uses a custom `DOMCleaner` to strip noise (scripts, styles, SVGs) and feed a token-optimized DOM structure to the LLM.
 * **Interactive Test Design**: Proposes a 3-scenario test plan (e.g., "Verify Login", "Check Cart") which the user can approve or critique via the Chat UI.
-* **Code Generation & Execution**: automatically generates asynchronous Python Playwright code, writes it to disk (`generated_test_runner.py`), and executes it in a subprocess.
+* **Code Generation & Execution**: Automatically generates asynchronous Python Playwright code, writes it to disk (`generated_test_runner.py`), and executes it in a subprocess.
 * **Human-in-the-Loop Workflow**: Built on **LangGraph**, the state machine pauses before implementation and final approval, allowing users to guide the agent.
 * **Observability**: Integrated with **Langfuse** for detailed trace recording of LLM reasoning steps, token usage, and latency.
 * **Live Metrics**: Tracks and displays token consumption and execution time per step in the UI.
@@ -44,27 +44,26 @@ The system operates as a stateful graph defined in `app/agent/graph.py`.
 
 ```text
 GenAIProject/
- app/
-    agent/              # Core Agent Logic
-       graph.py        # LangGraph workflow definition
-       nodes.py        # Implementation of Explore, Design, Implement, Verify nodes
-    core/               # System Utilities
-       llm.py          # Gemini model configuration
-       state.py        # AgentState TypedDict definition
-       tracing.py      # Langfuse integration
-       metrics.py      # Token and time tracking
-    engine/             # Browser & DOM Handling
-       browser.py      # Playwright manager (startup, nav, screenshot)
-       dom_cleaner.py  # BeautifulSoup logic to optimize HTML for LLM
-    ui/
-        chat.py         # Chainlit entry point and message handlers
- tests/                  # Unit and Integration Tests
- config.py               # Environment & Model configuration
- chainlit.md             # Welcome screen markdown
- requirements.txt        # Project dependencies
- run_agent.py            # CLI entry point (headless mode)
- generated_test_runner.py # Dynamically generated test code (overwritten per run)
-
+├── app/
+│   ├── agent/              # Core Agent Logic
+│   │   ├── graph.py        # LangGraph workflow definition
+│   │   └── nodes.py        # Implementation of Explore, Design, Implement, Verify nodes
+│   ├── core/               # System Utilities
+│   │   ├── llm.py          # Gemini model configuration
+│   │   ├── state.py        # AgentState TypedDict definition
+│   │   ├── tracing.py      # Langfuse integration
+│   │   └── metrics.py      # Token and time tracking
+│   ├── engine/             # Browser & DOM Handling
+│   │   ├── browser.py      # Playwright manager (startup, nav, screenshot)
+│   │   └── dom_cleaner.py  # BeautifulSoup logic to optimize HTML for LLM
+│   └── ui/
+│       └── chat.py         # Chainlit entry point and message handlers
+├── tests/                  # Unit and Integration Tests
+├── config.py               # Environment & Model configuration
+├── chainlit.md             # Welcome screen markdown
+├── requirements.txt        # Project dependencies
+├── run_agent.py            # CLI entry point (headless mode)
+└── generated_test_runner.py # Dynamically generated test code (overwritten per run)
 ```
 
 ## Installation & Setup
@@ -80,7 +79,6 @@ GenAIProject/
 ```bash
 git clone https://github.com/your-username/GenAIProject.git
 cd GenAIProject
-
 ```
 
 ### Step 2: Create Virtual Environment
@@ -88,7 +86,6 @@ cd GenAIProject
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
 ```
 
 ### Step 3: Install Dependencies
@@ -96,7 +93,6 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```bash
 pip install -r requirements.txt
 playwright install chromium
-
 ```
 
 ### Step 4: Configure Environment
@@ -111,7 +107,6 @@ GOOGLE_API_KEY=your_google_api_key_here
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_HOST=https://cloud.langfuse.com
-
 ```
 
 ## Usage
@@ -122,7 +117,6 @@ Launch the Chainlit interface to interact with the agent visually.
 
 ```bash
 chainlit run app/ui/chat.py -w
-
 ```
 
 * The UI will open at `http://localhost:8000`.
@@ -134,8 +128,9 @@ Run the agent directly from the terminal without the web UI.
 
 ```bash
 python run_agent.py
-
 ```
+
+* Follow the prompt to enter the URL to test.
 
 ## Configuration
 
@@ -157,7 +152,6 @@ pytest tests/
 
 # Run specific tests for the browser engine
 pytest tests/test_browser.py
-
 ```
 
 ## Limitations & Assumptions
@@ -166,26 +160,6 @@ pytest tests/test_browser.py
 * **Complex Interactions**: While capable of handling standard forms and navigation, the agent may struggle with complex, multi-frame applications or CAPTCHAs.
 * **Token Limits**: `DOMCleaner` truncates HTML content to ~8000 tokens to fit within context windows. Extremely large pages may have footer content cut off.
 
-## Future Improvements
-
-* **Self-Correction Loop**: Implement an automatic retry mechanism where the agent reads the Python error traceback and fixes the code without human intervention.
-* **Multi-Browser Support**: Extend `BrowserManager` to support Firefox and WebKit.
-* **Persistent Context**: Allow the agent to "remember" login states across different test runs.
-
 ## License
 
-*No license file was found in the repository.*
-
----
-
-### Notes on Generation
-
-**Assumptions Made:**
-
-* Assumed the project is intended for local execution given the `localhost` references and `playwright install` requirements.
-* Assumed `run_agent.py` is the primary CLI entry point based on its `if __name__ == "__main__":` block.
-
-**Missing Information:**
-
-* **License**: A `LICENSE` file is standard practice but missing here.
-* **Contributing Guidelines**: No `CONTRIBUTING.md` exists.
+This project is licensed under the **MIT License**.
